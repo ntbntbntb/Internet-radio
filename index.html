@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#10131a">
+  <title>Patrick's Radio</title>
+  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+  <style>
+    :root{color-scheme:dark;--bg:#10131a;--card:#191e29;--muted:#aab3c5;--accent:#63e6be}
+    *{box-sizing:border-box} body{margin:0;min-height:100vh;background:radial-gradient(circle at top,#243047 0,#10131a 48%);font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#fff}
+    main{max-width:760px;margin:auto;padding:24px 18px 48px}.top{display:flex;align-items:center;justify-content:space-between;gap:16px}h1{font-size:clamp(30px,8vw,52px);margin:12px 0 4px}p{color:var(--muted);margin:0 0 24px}
+    google-cast-launcher{width:42px;height:42px;--connected-color:var(--accent);--disconnected-color:#fff;display:block}
+    .stations{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}.station{border:1px solid #30394a;background:linear-gradient(145deg,#232a38,#171c26);border-radius:20px;padding:20px;text-align:left;color:#fff;cursor:pointer;min-height:146px;box-shadow:0 12px 30px #0004;transition:.18s transform,.18s border-color}.station:hover,.station:focus-visible{transform:translateY(-2px);border-color:var(--accent);outline:none}.station.active{border-color:var(--accent);box-shadow:0 0 0 2px #63e6be33}.logo{width:54px;height:54px;border-radius:15px;display:grid;place-items:center;font-size:25px;font-weight:800;margin-bottom:15px}.name{font-size:20px;font-weight:750}.genre{font-size:13px;color:var(--muted);margin-top:4px}
+    .player{position:sticky;bottom:12px;margin-top:24px;background:#151a24ee;backdrop-filter:blur(12px);border:1px solid #334055;border-radius:20px;padding:16px;box-shadow:0 15px 45px #0008}.now{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.status{font-weight:700}.small{font-size:13px;color:var(--muted)}audio{width:100%;height:46px}.actions{display:flex;gap:9px;margin-top:12px}.action{flex:1;border:0;border-radius:12px;padding:12px;background:#293246;color:#fff;font-weight:650;cursor:pointer}.action.primary{background:var(--accent);color:#07130f}.message{min-height:20px;margin-top:10px;color:#ffcf70;font-size:13px}
+  </style>
+</head>
+<body>
+<main>
+  <div class="top"><div><h1>Patrick's Radio</h1><p>Rechtstreeks luisteren, zonder een radio-aggregator.</p></div><google-cast-launcher aria-label="Casten"></google-cast-launcher></div>
+  <section class="stations" id="stations"></section>
+  <section class="player">
+    <div class="now"><div><div class="status" id="now">Kies een zender</div><div class="small" id="mode">Speelt af op dit apparaat</div></div></div>
+    <audio id="audio" controls playsinline preload="none"></audio>
+    <div class="actions"><button class="action primary" id="play">Afspelen</button><button class="action" id="stop">Stop</button></div>
+    <div class="message" id="message"></div>
+  </section>
+</main>
+<script>
+const stations=[
+ {name:'Pinguin Radio',genre:'Indie & alternative',url:'https://streams.pinguinradio.com/PinguinRadio320.mp3',type:'audio/mpeg',color:'#f4c542',mark:'P'},
+ {name:'KINK',genre:'Alternative rock',url:'https://playerservices.streamtheworld.com/api/livestream-redirect/KINK.mp3',type:'audio/mpeg',color:'#ed164c',mark:'K'},
+ {name:'Studio Brussel',genre:'Alternative & pop',url:'https://icecast.vrtcdn.be/stubru-high.mp3',type:'audio/mpeg',color:'#1bd760',mark:'S'}
+];
+const audio=document.querySelector('#audio'), list=document.querySelector('#stations'), now=document.querySelector('#now'), mode=document.querySelector('#mode'), msg=document.querySelector('#message'); let current=null;
+list.innerHTML=stations.map((s,i)=>`<button class="station" data-i="${i}"><span class="logo" style="background:${s.color};color:#071018">${s.mark}</span><span class="name">${s.name}</span><span class="genre">${s.genre}</span></button>`).join('');
+list.addEventListener('click',e=>{const b=e.target.closest('.station');if(b)selectStation(stations[+b.dataset.i]);});
+function setActive(){document.querySelectorAll('.station').forEach((b,i)=>b.classList.toggle('active',stations[i]===current));}
+async function selectStation(s){current=s;setActive();now.textContent=s.name;msg.textContent=''; const session=window.cast?.framework?.CastContext.getInstance().getCurrentSession(); if(session){await castStation(session,s)}else{audio.src=s.url;try{await audio.play()}catch(e){msg.textContent='Tik op Afspelen om de stream te starten.'}}}
+async function castStation(session,s){const info=new chrome.cast.media.MediaInfo(s.url,s.type);info.streamType=chrome.cast.media.StreamType.LIVE;info.metadata=new chrome.cast.media.MusicTrackMediaMetadata();info.metadata.title=s.name;info.metadata.artist='Live radio';try{await session.loadMedia(new chrome.cast.media.LoadRequest(info));audio.pause();mode.textContent='Speelt af op Chromecast';msg.textContent=''}catch(e){msg.textContent='Casten mislukt. Probeer opnieuw of speel lokaal af.'}}
+document.querySelector('#play').onclick=()=>current?selectStation(current):msg.textContent='Kies eerst een zender.';
+document.querySelector('#stop').onclick=()=>{audio.pause();audio.removeAttribute('src');audio.load();const s=window.cast?.framework?.CastContext.getInstance().getCurrentSession();if(s?.getMediaSession())s.getMediaSession().stop(null,()=>{},()=>{});mode.textContent='Gestopt';};
+window.__onGCastApiAvailable=isAvailable=>{if(!isAvailable)return;const ctx=cast.framework.CastContext.getInstance();ctx.setOptions({receiverApplicationId:chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,autoJoinPolicy:chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED});ctx.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED,e=>{if(e.sessionState===cast.framework.SessionState.SESSION_STARTED||e.sessionState===cast.framework.SessionState.SESSION_RESUMED){mode.textContent='Chromecast verbonden';if(current)castStation(ctx.getCurrentSession(),current)}else if(e.sessionState===cast.framework.SessionState.SESSION_ENDED){mode.textContent='Speelt af op dit apparaat'}})};
+audio.addEventListener('playing',()=>mode.textContent='Speelt af op dit apparaat');audio.addEventListener('error',()=>msg.textContent='Deze stream kon niet worden gestart. Controleer je verbinding of probeer opnieuw.');
+</script>
+</body>
+</html>
