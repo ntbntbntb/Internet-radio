@@ -20,7 +20,7 @@
   <div class="top"><div><h1>Patrick's Radio</h1><p>Rechtstreeks luisteren, zonder een radio-aggregator.</p></div><google-cast-launcher aria-label="Casten"></google-cast-launcher></div>
   <section class="stations" id="stations"></section>
   <section class="player">
-    <div class="now"><div><div class="status" id="now">Kies een zender</div><div class="small" id="mode">Speelt af op dit apparaat</div></div></div>
+    <div class="now"><div><div class="status" id="now">Kies een zender</div><div class="small" id="track">Nummerinformatie wordt geladen…</div><div class="small" id="mode">Speelt af op dit apparaat</div></div></div>
     <audio id="audio" controls playsinline preload="none"></audio>
     <div class="actions"><button class="action primary" id="play">Afspelen</button><button class="action" id="stop">Stop</button></div>
     <div class="message" id="message"></div>
@@ -29,15 +29,45 @@
 <script>
 const stations=[
  {name:'Pinguin Radio',genre:'Indie & alternative',url:'https://streams.pinguinradio.com/PinguinRadio320.mp3',type:'audio/mpeg',color:'#f4c542',mark:'P'},
+ {name:'Pinguin Classics',genre:'Alternative classics',url:'https://streams.pinguinradio.com/PinguinClassics192.mp3',type:'audio/mpeg',color:'#7dd3fc',mark:'PC'},
  {name:'KINK',genre:'Alternative rock',url:'https://playerservices.streamtheworld.com/api/livestream-redirect/KINK.mp3',type:'audio/mpeg',color:'#ed164c',mark:'K'},
  {name:'Studio Brussel',genre:'Alternative & pop',url:'https://icecast.vrtcdn.be/stubru-high.mp3',type:'audio/mpeg',color:'#1bd760',mark:'S'}
 ];
-const audio=document.querySelector('#audio'), list=document.querySelector('#stations'), now=document.querySelector('#now'), mode=document.querySelector('#mode'), msg=document.querySelector('#message'); let current=null;
+const audio=document.querySelector('#audio'), list=document.querySelector('#stations'), now=document.querySelector('#now'), track=document.querySelector('#track'), mode=document.querySelector('#mode'), msg=document.querySelector('#message'); let current=null, metadataTimer=null;
 list.innerHTML=stations.map((s,i)=>`<button class="station" data-i="${i}"><span class="logo" style="background:${s.color};color:#071018">${s.mark}</span><span class="name">${s.name}</span><span class="genre">${s.genre}</span></button>`).join('');
 list.addEventListener('click',e=>{const b=e.target.closest('.station');if(b)selectStation(stations[+b.dataset.i]);});
 function setActive(){document.querySelectorAll('.station').forEach((b,i)=>b.classList.toggle('active',stations[i]===current));}
-async function selectStation(s){current=s;setActive();now.textContent=s.name;msg.textContent=''; const session=window.cast?.framework?.CastContext.getInstance().getCurrentSession(); if(session){await castStation(session,s)}else{audio.src=s.url;try{await audio.play()}catch(e){msg.textContent='Tik op Afspelen om de stream te starten.'}}}
+async function selectStation(s){current=s;setActive();now.textContent=s.name;track.textContent='Nummerinformatie wordt geladen…';startMetadata(s);msg.textContent=''; const session=window.cast?.framework?.CastContext.getInstance().getCurrentSession(); if(session){await castStation(session,s)}else{audio.src=s.url;try{await audio.play()}catch(e){msg.textContent='Tik op Afspelen om de stream te starten.'}}}
 async function castStation(session,s){const info=new chrome.cast.media.MediaInfo(s.url,s.type);info.streamType=chrome.cast.media.StreamType.LIVE;info.metadata=new chrome.cast.media.MusicTrackMediaMetadata();info.metadata.title=s.name;info.metadata.artist='Live radio';try{await session.loadMedia(new chrome.cast.media.LoadRequest(info));audio.pause();mode.textContent='Speelt af op Chromecast';msg.textContent=''}catch(e){msg.textContent='Casten mislukt. Probeer opnieuw of speel lokaal af.'}}
+
+function startMetadata(s){
+  clearInterval(metadataTimer);
+  updateMetadata(s);
+  metadataTimer=setInterval(()=>updateMetadata(s),20000);
+}
+async function updateMetadata(s){
+  if(current!==s)return;
+  try{
+    if(s.name==='Studio Brussel'){
+      const r=await fetch('https://media-services-public.vrt.be/vualto-video-aggregator-web/rest/external/v2/channels/livestream-audio-stubru',{cache:'no-store'});
+      if(!r.ok)throw new Error('VRT');
+      const d=await r.json();
+      const item=d.schedule?.find(x=>x.nowOnAirItem)?.nowOnAirItem || d.schedule?.[0]?.nowOnAirItem;
+      const artist=item?.artist || item?.author || '';
+      const title=item?.title || '';
+      track.textContent=artist&&title ? `${artist} – ${title}` : title||artist||'Live uitzending';
+      return;
+    }
+    const endpoint='https://api.twj.es/?url='+encodeURIComponent(s.url);
+    const r=await fetch(endpoint,{cache:'no-store'});
+    if(!r.ok)throw new Error('metadata');
+    const d=await r.json();
+    const artist=d.artist||d.now_playing?.artist||'';
+    const title=d.song||d.title||d.now_playing?.song||d.songtitle||'';
+    track.textContent=artist&&title&&!title.toLowerCase().includes(artist.toLowerCase()) ? `${artist} – ${title}` : title||artist||'Live uitzending';
+  }catch(e){track.textContent='Nummerinformatie niet beschikbaar';}
+}
+
 document.querySelector('#play').onclick=()=>current?selectStation(current):msg.textContent='Kies eerst een zender.';
 document.querySelector('#stop').onclick=()=>{audio.pause();audio.removeAttribute('src');audio.load();const s=window.cast?.framework?.CastContext.getInstance().getCurrentSession();if(s?.getMediaSession())s.getMediaSession().stop(null,()=>{},()=>{});mode.textContent='Gestopt';};
 window.__onGCastApiAvailable=isAvailable=>{if(!isAvailable)return;const ctx=cast.framework.CastContext.getInstance();ctx.setOptions({receiverApplicationId:chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,autoJoinPolicy:chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED});ctx.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED,e=>{if(e.sessionState===cast.framework.SessionState.SESSION_STARTED||e.sessionState===cast.framework.SessionState.SESSION_RESUMED){mode.textContent='Chromecast verbonden';if(current)castStation(ctx.getCurrentSession(),current)}else if(e.sessionState===cast.framework.SessionState.SESSION_ENDED){mode.textContent='Speelt af op dit apparaat'}})};
